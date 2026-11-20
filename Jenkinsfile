@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -29,38 +30,65 @@ pipeline {
                         script: '''#!/bin/bash
                             set -o pipefail
 
-                            .venv/bin/python -m pytest \\
-                                -v \\
-                                --color=no \\
-                                --junitxml=reports/pytest-results.xml \\
+                            .venv/bin/python -m pytest \
+                                -v \
+                                --color=no \
+                                --junitxml=reports/pytest-results.xml \
                                 py_test/tests/ 2>&1 | tee artifacts/pytest-output.log
                         '''
                     )
 
-                    // Save the test status for the final pipeline result.
                     env.PYTEST_STATUS = testStatus.toString()
                 }
             }
         }
 
-        stage('Generate Screenshot') {
+        stage('Capture Kubernetes Nodes') {
+            steps {
+                script {
+                    int kubectlStatus = sh(
+                        returnStatus: true,
+                        script: '''#!/bin/bash
+                            set -o pipefail
+
+                            {
+                                echo "$ kubectl get nodes -o wide"
+                                kubectl get nodes -o wide
+                            } 2>&1 | tee artifacts/kubectl-nodes-output.log
+                        '''
+                    )
+
+                    env.KUBECTL_STATUS = kubectlStatus.toString()
+                }
+            }
+        }
+
+        stage('Generate Screenshots') {
             steps {
                 sh '''
                     .venv/bin/python scripts/create_terminal_screenshot.py \
                         --input artifacts/pytest-output.log \
                         --output artifacts/pytest-screenshot.png
+
+                    .venv/bin/python scripts/create_terminal_screenshot.py \
+                        --input artifacts/kubectl-nodes-output.log \
+                        --output artifacts/kubectl-nodes-screenshot.png
                 '''
             }
         }
 
-        stage('Validate Test Result') {
+        stage('Validate Execution Results') {
             steps {
                 script {
                     if (env.PYTEST_STATUS != '0') {
                         error("Pytest execution failed. Exit code: ${env.PYTEST_STATUS}")
                     }
 
-                    echo 'All pytest tests passed.'
+                    if (env.KUBECTL_STATUS != '0') {
+                        error("Kubectl command failed. Exit code: ${env.KUBECTL_STATUS}")
+                    }
+
+                    echo 'Pytest and Kubernetes node checks completed successfully.'
                 }
             }
         }
@@ -68,7 +96,7 @@ pipeline {
 
     post {
         always {
-            echo 'Publishing test execution artifacts...'
+            echo 'Publishing execution artifacts...'
 
             junit(
                 testResults: 'reports/pytest-results.xml',
