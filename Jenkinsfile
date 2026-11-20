@@ -51,9 +51,11 @@ pipeline {
                         script: '''#!/bin/bash
                             set -o pipefail
 
+                            export KUBECONFIG=/var/lib/jenkins/.kube/config
+
                             {
                                 echo "$ kubectl get nodes -o wide"
-                                kubectl get nodes -o wide
+                                /var/lib/rancher/rke2/bin/kubectl get nodes -o wide
                             } 2>&1 | tee artifacts/kubectl-nodes-output.log
                         '''
                     )
